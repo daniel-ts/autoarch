@@ -15,7 +15,7 @@ usage () {
     echo -e ""
 }
 
-_OPTS=`getopt -n install.sh --options h,d:,s: --longoptions help,disk:,source: -- $@`
+_OPTS=`getopt -un install.sh --options h,d:,s: --longoptions help,disk:,source: -- $@`
 if [ $? -ne 0 ]; then
     exit 1
 fi
@@ -63,3 +63,11 @@ fi
 
 timedatectl set-ntp true
 # TODO add disk encryption
+echo "Creating partition table on: $_DISK"
+parted -s ${_DISK} mklabel msdos
+parted -s ${_DISK} mkpart primary ext4
+
+# wie mache ich Partitionen? / part braucht min(50%, 40gb)
+# swap braucht 10% oder 4gb
+# home braucht den Rest
+_DSIZE=`fdisk /dev/sda -l | sed 1q | awk -F,\  '{print $2}' | awk {print $1}`
