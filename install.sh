@@ -15,7 +15,7 @@ usage () {
     echo -e ""
 }
 
-_OPTS=`getopt -un install.sh --options h,d:,s: --longoptions help,disk:,source: -- $@`
+_OPTS=$(getopt -un install.sh --options h,d:,s: --longoptions help,disk:,source: -- $@)
 if [ $? -ne 0 ]; then
     exit 1
 fi
@@ -63,11 +63,33 @@ fi
 
 timedatectl set-ntp true
 # TODO add disk encryption
-echo "Creating partition table on: $_DISK"
+
+echo "Creating partition table on: $_DISK..."
+_DSIZE=$(fdisk $_DISK -l | sed 1q | awk -F,\  '{print $2}' | awk '{print $1}')
+echo -e "\n disk size is $_DSIZE\n"
 parted -s ${_DISK} mklabel msdos
-parted -s ${_DISK} mkpart primary ext4
+
+setup_small_disk() {
+    local _MNT
+    _MNT=/mnt
+    # 2097152 = 2 MiB, room for the bootloader ERROR HERE
+    parted -s ${_DISK} mkpart primary ext4 2097152 $_DSIZE \
+	&& mkfs.ext4 ${_DISK}1 \
+	&& mount ${_DISK} $_MNT \
+	&& fallocate -l 512M $_MNT/swapfile \
+	&& mkswap $_MNT/swapfile \
+	&& swapon $_MNT/swapfile \
+	&& umount $_MNT
+    return $?
+}
 
 # wie mache ich Partitionen? / part braucht min(50%, 40gb)
 # swap braucht 10% oder 4gb
 # home braucht den Rest
-_DSIZE=`fdisk /dev/sda -l | sed 1q | awk -F,\  '{print $2}' | awk {print $1}`
+
+if [ $_DSIZE -le 137439000000 ]  # smaller than 128 GiB
+then  # everything on a single partition with swapfile
+    echo "Setting a partition format for a small disk (< 128 GiB)"
+    setup_small_disk
+    echo "setup_small_disk returned: $?"
+fi
