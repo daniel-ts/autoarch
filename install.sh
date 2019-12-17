@@ -66,18 +66,18 @@ timedatectl set-ntp true
 
 echo "Creating partition table on: $_DISK..."
 _DSIZE=$(fdisk $_DISK -l | sed 1q | awk -F,\  '{print $2}' | awk '{print $1}')
-echo -e "\n disk size is $_DSIZE\n"
 parted -s ${_DISK} mklabel msdos
 
 setup_small_disk() {
     local _MNT
     _MNT=/mnt
     # 2097152 = 2 MiB, room for the bootloader ERROR HERE
-    parted -s ${_DISK} mkpart primary ext4 2097152 $_DSIZE \
-	&& mkfs.ext4 ${_DISK}1 \
-	&& mount ${_DISK} $_MNT \
+    parted --script ${_DISK} mkpart primary ext4 2MiB 99% \
+	&& mkfs.ext4 -q ${_DISK}1 \
+	&& mount ${_DISK}1 $_MNT \
 	&& fallocate -l 512M $_MNT/swapfile \
 	&& mkswap $_MNT/swapfile \
+	&& chmod 0600 $_MNT/swapfile \
 	&& swapon $_MNT/swapfile \
 	&& umount $_MNT
     return $?
