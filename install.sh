@@ -98,8 +98,7 @@ setup_small_disk() {
 if [ $_DSIZE -le 137439000000 ]  # smaller than 128 GiB
 then  # everything on a single partition with swapfile
     echo "Setting a partition format for a small disk (< 128 GiB)"
-    setup_small_disk
-    if ! $?; then
+    if ! setup_small_disk; then
 	echo "setup_small_disk failed"
     fi
 fi
@@ -108,16 +107,25 @@ write_config_files() {
     local _MNT
     _MNT=${1:-/mnt}
 
-    if [ -e $_MNT/swapfile ] && grep -c "^/swapfile" $_MNT/etc/fstab; then
-	echo "/swapfile none swap defaults 0 0" >> $_MNT/etc/fstab
+    if [ -e $_MNT/swapfile ] && [ $(grep -c '^/swapfile' $_MNT/etc/fstab) -eq 0 ]
+    then
+	echo -n "/swapfile none swap defaults 0 0\n" >> $_MNT/etc/fstab
     fi
 
-    ln -sf $_MNT/usr/share/zoneinfo${_ZONEINFO} $_MNT/etc/localtime
     echo "LANG=$_LANG" > $_MNT/etc/locale.conf
     echo "$_LOCALE" > $_MNT/etc/locale.gen
     echo "KEYMAP=$_KEYMAP" >> $_MNT/etc/vconsole.conf
     echo "$_HOSTNAME" > $_MNT/etc/hostname
-    echo -e "127.0.0.1\tlocalhost\n::1\t\tlocalhost\n127.0.1.1\t$_HOSTNAME.localdomain $_HOSTNAME" > /etc/hosts
+    echo -e "127.0.0.1\tlocalhost\n::1\t\tlocalhost\n127.0.1.1\t$_HOSTNAME.localdomain $_HOSTNAME" > $_MNT/etc/hosts
+
+    return $?
+}
+
+chroot_run() {
+    ln -sf $_MNT/usr/share/zoneinfo${_ZONEINFO} $_MNT/etc/localtime
+    hwclock --systohc \
+	&& locale-gen \
+	&& usermod --password $(openssl passwd -6 password) root
 
     return $?
 }
@@ -126,33 +134,37 @@ set_config() {
     local _MNT
     _MNT=${1:-/mnt}
 
-    ### chroot enter ###
-    arch-chroot $_MNT
+    export -f chroot_run
+    export _ZONEINFO
+    arch-chroot ${_MNT} /bin/sh -c "chroot_run"
 
-    hwclock --systohc
-    locale-gen
-    usermod --password $(openssl passwd -6 password) root
-    grub-install --target=i386-pc $_DISK
+    grub-install --target=i386-pc --root-directory=${_MNT} ${_DISK}
     grub-mkconfig -o /boot/grub/grub.cfg
-
-    exit
-    ### chroot exit ###
 
     return $?
 }
 
 bootstrap_system() {
     local _MNT
-    _MNT=/mnt
+    _MNT="/mnt"
 
-    mount $_DISK1 $_MNT \
-	&& pacstrap $_MNT base linux linux-firmware \
-	&& genfstab -U $_MNT > $_MNT/etc/fstab
+    if mount ${_DISK}1 ${_MNT} \
+	    && pacstrap ${_MNT} base linux linux-firmware \
+	    && genfstab -U ${_MNT} > $_MNT/etc/fstab
+    then
+	echo -e "\t\tsuccess mounting and bootstrapping"
+	write_config_files $_MNT \
+	    && set_config $_MNT
+    fi
 
-    write_config_files $_MNT \
-	&& set_config $_MNT
-
-    umount -lR $_MNT
+	umount -lR $_MNT
 
     return $?
 }
+
+echo -e "\nbootstrapping the basic system"
+if bootstrap_system; then
+    echo -e "\tsuccess\n"
+else
+    echo -e "\tfailure\n"
+fi
