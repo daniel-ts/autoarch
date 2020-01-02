@@ -76,7 +76,13 @@ parted -s ${_DISK} mklabel msdos
 setup_small_disk() {
     local _MNT
     _MNT=/mnt
-    # 2097152 = 2 MiB, room for the bootloader ERROR HERE
+
+    if [ -n $(lsblk -lin -o MOUNTPOINT ${_DISK}1) ]; then
+	echo "${_DISK}1 is mounted. Unmounting..."
+	umount -f ${_DISK}1 || echo "${_DISK} is busy! Aborting."; return 1
+    fi
+
+    # 2097152 = 2 MiB, room for the bootloader
     if parted --script ${_DISK} mkpart primary ext4 2MiB 99% \
 	    && mkfs.ext4 -F -L system -q ${_DISK}1; then
 
@@ -100,6 +106,7 @@ then  # everything on a single partition with swapfile
     echo "Setting a partition format for a small disk (< 128 GiB)"
     if ! setup_small_disk; then
 	echo "setup_small_disk failed"
+	exit 1
     fi
 fi
 
@@ -139,7 +146,7 @@ set_config() {
     arch-chroot ${_MNT} /bin/sh -c "chroot_run"
 
     grub-install --target=i386-pc --root-directory=${_MNT} ${_DISK}
-    grub-mkconfig -o /boot/grub/grub.cfg
+    arch-chroot ${_MNT} /bin/sh -c "grub-mkconfig -o /boot/grub/grub.cfg"
 
     return $?
 }
@@ -149,7 +156,7 @@ bootstrap_system() {
     _MNT="/mnt"
 
     if mount ${_DISK}1 ${_MNT} \
-	    && pacstrap ${_MNT} base linux linux-firmware \
+	    && pacstrap ${_MNT} base linux linux-firmware grub \
 	    && genfstab -U ${_MNT} > $_MNT/etc/fstab
     then
 	echo -e "\t\tsuccess mounting and bootstrapping"
