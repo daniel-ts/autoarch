@@ -59,23 +59,23 @@ while [ -n $1 ]; do
     esac
 done
 
-echo -n "checking internet connection ..."
-if ping $_SOURCE -c 4 -W 1 > /dev/null 2>&1; then
-    echo "done."
-else
-    echo "failed. Source unreachable."
-    # TODO: code for establishing a connection
-    # exit 1
-fi
+check_inet_conn() {
+    echo -n "checking internet connection ..."
+    if ping $_SOURCE -c 4 -W 1 > /dev/null 2>&1; then
+	echo "done."
+	return 0
+    else
+	echo "failed. Source unreachable."
+	return 1
+    fi
+}
 
-timedatectl set-ntp true
-# TODO add disk encryption
+init_live_system() {
+    timedatectl set-ntp true
+    return 0
+}
 
-echo "Creating partition table on: $_DISK..."
-_DSIZE=$(fdisk $_DISK -l | sed 1q | awk -F,\  '{print $2}' | awk '{print $1}')
-parted -s ${_DISK} mklabel msdos
-
-setup_small_disk() {
+__setup_small_disk() {
     local _MNT
     _MNT=/mnt
 
@@ -99,20 +99,22 @@ setup_small_disk() {
     return 1
 }
 
-# wie mache ich Partitionen? / part braucht min(50%, 40gb)
-# swap braucht 10% oder 4gb
-# home braucht den Rest
+partition_disks() {
+    echo "Creating partition table on: $_DISK..."
+    _DSIZE=$(fdisk $_DISK -l | sed 1q | awk -F,\  '{print $2}' | awk '{print $1}')
+    parted -s ${_DISK} mklabel msdos
 
-if [ $_DSIZE -le 137439000000 ]  # smaller than 128 GiB
-then  # everything on a single partition with swapfile
-    echo "Setting a partition format for a small disk (< 128 GiB)"
-    if ! setup_small_disk; then
-	echo "setup_small_disk failed"
-	exit 1
+    if [ $_DSIZE -le 137439000000 ]  # smaller than 128 GiB
+    then  # everything on a single partition with swapfile
+	echo "Setting up a partition format for a small disk (< 128 GiB)"
+	if ! __setup_small_disk; then
+	    echo "__setup_small_disk failed"
+	    exit 1
+	fi
     fi
-fi
+}
 
-write_config_files() {
+set_basic_target_system_params() {
     local _MNT
     _MNT=${1:-/mnt}
 
@@ -139,7 +141,7 @@ chroot_run() {
     return $?
 }
 
-set_config() {
+lock_params() {
     local _MNT
     _MNT=${1:-/mnt}
 
@@ -147,9 +149,15 @@ set_config() {
     export _ZONEINFO
     arch-chroot ${_MNT} /bin/sh -c "chroot_run"
 
-    grub-install --target=i386-pc --root-directory=${_MNT} ${_DISK}
-    arch-chroot ${_MNT} /bin/sh -c "grub-mkconfig -o /boot/grub/grub.cfg"
+    return $?
+}
 
+install_grub() {
+    local _MNT
+    _MNT=${1:-/mnt}
+
+    grub-install --target=i386-pc --root-directory=${_MNT} ${_DISK} \
+    && arch-chroot ${_MNT} /bin/sh -c "grub-mkconfig -o /boot/grub/grub.cfg"
     return $?
 }
 
@@ -162,17 +170,20 @@ bootstrap_system() {
 	    && genfstab -U ${_MNT} > $_MNT/etc/fstab
     then
 	echo -e "\t\tsuccess mounting and bootstrapping"
-	write_config_files $_MNT \
-	    && set_config $_MNT
+	set_basic_target_system_params $_MNT \
+	    && lock_params $_MNT \
+	    && install_grub $_MNT
     fi
-
-	umount -lR $_MNT
+    umount -lR $_MNT
 
     return $?
 }
 
 echo -e "\nbootstrapping the basic system"
-if bootstrap_system; then
+if init_live_system \
+	&& partition_disks \
+	&& bootstrap_system
+then
     echo -e "\tsuccess\n"
 else
     echo -e "\tfailure\n"
