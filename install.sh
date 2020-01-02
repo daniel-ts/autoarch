@@ -12,12 +12,14 @@ _LOCALE="en_US.UTF-8 UTF-8"
 _HOSTNAME="forge"
 
 usage () {
-    echo -e "\nArch install script.\nUsage: install.sh [options]"
-    echo -e "Options:"
-    echo -e "\t-h, --help\t\t\tPrint this message"
-    echo -e "\t-d, --disk <path to disk>\tThe disk to install the system on."
-    echo -e "\t-s, --source <url>\t\tSource of config files and other data."
-    echo -e ""
+    cat <<EOF
+Arch install script.
+Usage: install.sh [options]"
+Options:
+    -h, --help                 Print this message
+    -d, --disk <path to disk>  The disk to install the system on.
+    -s, --source <url>         Source of config files and other data.
+EOF
 }
 
 _OPTS=$(getopt -un install.sh --options h,d:,s: --longoptions help,disk:,source: -- $@)
@@ -156,7 +158,7 @@ bootstrap_system() {
     _MNT="/mnt"
 
     if mount ${_DISK}1 ${_MNT} \
-	    && pacstrap ${_MNT} base linux linux-firmware grub \
+	    && pacstrap ${_MNT} base linux linux-firmware grub > /dev/null \
 	    && genfstab -U ${_MNT} > $_MNT/etc/fstab
     then
 	echo -e "\t\tsuccess mounting and bootstrapping"
