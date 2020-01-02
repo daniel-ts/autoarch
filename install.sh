@@ -79,9 +79,11 @@ __setup_small_disk() {
     local _MNT
     _MNT=/mnt
 
-    if [ -n $(lsblk -lin -o MOUNTPOINT ${_DISK}1) ]; then
+    if lsblk ${_DISK}1 2>&1 \
+	   && [ -n $(lsblk -lin -o MOUNTPOINT ${_DISK}1 2> /dev/null) ]
+    then
 	echo "${_DISK}1 is mounted. Unmounting..."
-	umount -f ${_DISK}1 || echo "${_DISK} is busy! Aborting."; return 1
+	umount -l ${_DISK}1 || echo "${_DISK} is busy! Aborting."; return 1
     fi
 
     # 2097152 = 2 MiB, room for the bootloader
@@ -114,7 +116,7 @@ partition_disks() {
     fi
 }
 
-set_basic_target_system_params() {
+__set_basic_target_system_params() {
     local _MNT
     _MNT=${1:-/mnt}
 
@@ -132,7 +134,7 @@ set_basic_target_system_params() {
     return $?
 }
 
-chroot_run() {
+__chroot_run() {
     ln -sf $_MNT/usr/share/zoneinfo${_ZONEINFO} $_MNT/etc/localtime
     hwclock --systohc \
 	&& locale-gen \
@@ -141,18 +143,18 @@ chroot_run() {
     return $?
 }
 
-lock_params() {
+__lock_params() {
     local _MNT
     _MNT=${1:-/mnt}
 
-    export -f chroot_run
+    export -f __chroot_run
     export _ZONEINFO
-    arch-chroot ${_MNT} /bin/sh -c "chroot_run"
+    arch-chroot ${_MNT} /bin/sh -c "__chroot_run"
 
     return $?
 }
 
-install_grub() {
+__install_grub() {
     local _MNT
     _MNT=${1:-/mnt}
 
@@ -165,26 +167,30 @@ bootstrap_system() {
     local _MNT
     _MNT="/mnt"
 
+    echo "installing arch linux. this could take a while."
     if mount ${_DISK}1 ${_MNT} \
 	    && pacstrap ${_MNT} base linux linux-firmware grub > /dev/null \
 	    && genfstab -U ${_MNT} > $_MNT/etc/fstab
     then
 	echo -e "\t\tsuccess mounting and bootstrapping"
-	set_basic_target_system_params $_MNT \
-	    && lock_params $_MNT \
-	    && install_grub $_MNT
+	__set_basic_target_system_params $_MNT \
+	    && __lock_params $_MNT \
+	    && __install_grub $_MNT
+    else echo -e "\t\tarch linux install failed"
     fi
     umount -lR $_MNT
 
     return $?
 }
 
-echo -e "\nbootstrapping the basic system"
+echo -e "\n[bootstrapping the basic system]"
 if init_live_system \
 	&& partition_disks \
 	&& bootstrap_system
 then
-    echo -e "\tsuccess\n"
+    echo -e "\tSuccessfully installed base system\n"
+    exit 0
 else
     echo -e "\tfailure\n"
+    exit 1
 fi
